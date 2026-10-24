@@ -1,0 +1,10 @@
+node_modules
+dist
+.sites
+sites-build
+.wrangler
+.env
+.env.local
+*.log
+.DS_Store
+.vite
