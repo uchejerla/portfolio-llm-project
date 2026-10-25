@@ -32,11 +32,15 @@ export interface PublicAccountConfig {
   authEnabled: boolean;
   billingEnabled: boolean;
   trialDays: number;
+  portfolioTrialDays: number;
   priceLabel: string;
 }
 
 const DEFAULT_TRIAL_DAYS = 7;
 const DEFAULT_PRICE_LABEL = "$9 / month";
+
+/** Trial portfolios are hard-deleted this many days after they're created. */
+export const PORTFOLIO_TRIAL_DAYS = 14;
 
 function clean(value: string | undefined): string {
   return typeof value === "string" ? value.trim() : "";
@@ -83,6 +87,7 @@ export function publicAccountConfig(config: StudioConfig): PublicAccountConfig {
     authEnabled: config.authEnabled,
     billingEnabled: config.billingEnabled,
     trialDays: config.trialDays,
+    portfolioTrialDays: PORTFOLIO_TRIAL_DAYS,
     priceLabel: config.priceLabel,
   };
 }

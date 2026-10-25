@@ -9,6 +9,7 @@ import {
   createSession,
   ensureUser,
   getSessionUser,
+  markCheckoutComplete,
 } from "../server/account";
 import { denyChatIfRequired, handleApi } from "../server/api";
 import { verifyStripeSignature } from "../server/billing/stripe";
@@ -132,7 +133,7 @@ test("API reports signed-out state and a signed-in trial", async () => {
   }
 });
 
-test("chat is gated only for a configured paid, model-backed studio", async () => {
+test("chat requires sign-in whenever accounts are configured", async () => {
   const db = await openLocalDatabase(":memory:");
   try {
     const user = await ensureUser(db, PROFILE, 7);
@@ -173,7 +174,114 @@ test("chat is gated only for a configured paid, model-backed studio", async () =
       { ...ENV, ANTHROPIC_API_KEY: "" },
       db,
     );
-    assert.equal(offline, null);
+    assert.equal(offline?.status, 401);
+
+    const offlineSignedIn = await denyChatIfRequired(
+      new Request("https://studio.example/api/chat", {
+        method: "POST",
+        headers: { cookie: `ps_session=${token}` },
+      }),
+      { ...ENV, ANTHROPIC_API_KEY: "" },
+      db,
+    );
+    assert.equal(offlineSignedIn, null);
+
+    const selfHosted = await denyChatIfRequired(
+      new Request("https://studio.example/api/chat", { method: "POST" }),
+      { ...ENV, GOOGLE_CLIENT_ID: "", GOOGLE_CLIENT_SECRET: "" },
+      db,
+    );
+    assert.equal(selfHosted, null);
+  } finally {
+    db.close();
+  }
+});
+
+test("portfolios are private, expire after 14 days, and survive an upgrade", async () => {
+  const db = await openLocalDatabase(":memory:");
+  try {
+    const ada = await ensureUser(db, PROFILE, 7);
+    const grace = await ensureUser(
+      db,
+      { sub: "google-sub-2", email: "grace@example.com", name: "Grace Hopper", avatarUrl: "" },
+      7,
+    );
+    const adaToken = await createSession(db, ada.id);
+    const graceToken = await createSession(db, grace.id);
+
+    const listRequest = (token: string) =>
+      new Request("https://studio.example/api/portfolios", {
+        headers: { cookie: `ps_session=${token}` },
+      });
+    const saveRequest = (id: string, token: string, name: string) =>
+      new Request(`https://studio.example/api/portfolios/${id}`, {
+        method: "PUT",
+        headers: { cookie: `ps_session=${token}`, "content-type": "application/json" },
+        body: JSON.stringify({ title: `${name} — portfolio`, portfolio: { name } }),
+      });
+
+    const anonymous = await handleApi(listRequest(""), ENV, db);
+    assert.equal(anonymous?.status, 401);
+
+    const saved = await handleApi(saveRequest("chat-ada", adaToken, "Ada Lovelace"), ENV, db);
+    assert.equal(saved?.status, 200);
+    const savedBody = (await saved?.json()) as {
+      project: { expiresAt: number | null; title: string };
+    };
+    assert.equal(savedBody.project.title, "Ada Lovelace — portfolio");
+    assert.ok(savedBody.project.expiresAt);
+    const remaining = (savedBody.project.expiresAt as number) - Date.now();
+    assert.ok(remaining > 13.9 * DAY && remaining <= 14 * DAY + 1_000);
+
+    const stolen = await handleApi(saveRequest("chat-ada", graceToken, "Grace"), ENV, db);
+    assert.equal(stolen?.status, 409);
+
+    const graceList = await handleApi(listRequest(graceToken), ENV, db);
+    const graceBody = (await graceList?.json()) as { projects: unknown[] };
+    assert.equal(graceBody.projects.length, 0);
+
+    await db.run(
+      "UPDATE portfolios SET expires_at = ? WHERE id = ?",
+      Date.now() - 1,
+      "chat-ada",
+    );
+    const expired = await handleApi(listRequest(adaToken), ENV, db);
+    const expiredBody = (await expired?.json()) as {
+      projects: unknown[];
+      expiredIds: string[];
+    };
+    assert.deepEqual(expiredBody.expiredIds, ["chat-ada"]);
+    assert.equal(expiredBody.projects.length, 0);
+    const gone = await db.first("SELECT id FROM portfolios WHERE id = ?", "chat-ada");
+    assert.equal(gone, null);
+
+    const resurrect = await handleApi(saveRequest("chat-ada", adaToken, "Ada"), ENV, db);
+    assert.equal(resurrect?.status, 410);
+    assert.equal(((await resurrect?.json()) as { code: string }).code, "portfolio_expired");
+
+    const trialSave = await handleApi(
+      saveRequest("chat-grace", graceToken, "Grace Hopper"),
+      ENV,
+      db,
+    );
+    assert.equal(trialSave?.status, 200);
+    await markCheckoutComplete(db, {
+      userId: grace.id,
+      customerId: "cus_grace",
+      subscriptionId: "sub_grace",
+    });
+    const kept = await db.first<{ expires_at: number | null }>(
+      "SELECT expires_at FROM portfolios WHERE id = ?",
+      "chat-grace",
+    );
+    assert.equal(kept?.expires_at, null);
+
+    const proList = await handleApi(listRequest(graceToken), ENV, db);
+    const proBody = (await proList?.json()) as {
+      projects: Array<{ expiresAt: number | null }>;
+    };
+    assert.equal(proBody.projects.length, 1);
+    assert.equal(proBody.projects[0].expiresAt, null);
   } finally {
     db.close();
   }

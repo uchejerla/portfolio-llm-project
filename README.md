@@ -8,7 +8,8 @@
 
 A Claude-style studio that interviews you, art-directs the result, and hands you a portfolio you own.
 Ten cinematic templates, a live desktop + mobile preview, one-file HTML export, and an optional
-Google sign-in + Stripe subscription layer for running it as a product.
+Google sign-in + Stripe subscription layer for running it as a product — including a private
+sign-in wall, a 14-day trial portfolio clock, and Pro-only downloads.
 
 [**Live demo**](https://site-12814198e9224ea9861b511f69be1706.freebuff.page) · [Features](#the-studio) · [Templates](#ten-templates-one-blueprint) · [Quick start](#quick-start) · [Deploy](#build-and-deploy)
 
@@ -35,7 +36,7 @@ Tell the studio who you are, what you make, and which work matters. It writes a 
 - **Your copy stays yours.** The model returns a structured blueprint, not raw HTML. Switching from Cinema to Atelier keeps every word in place.
 - **Works without a key.** The local draft engine gets you from a brief to a real starter portfolio; Claude takes it further.
 - **A site you own.** Export one standalone HTML file and put it anywhere.
-- **A product if you want one.** Google sign-in, a no-card trial, and Stripe subscriptions are already wired in — or switch billing off and self-host it open.
+- **A product if you want one.** Google sign-in, a private studio wall, a no-card trial, 14-day trial portfolios, and Stripe subscriptions are already wired in — or switch billing off and self-host it open.
 
 ## The studio
 
@@ -131,7 +132,7 @@ npm run dev
 
 Open **http://localhost:3000**.
 
-That is enough to try the whole product. Without a model key the status pill reads **Local draft** and the local engine builds a starter portfolio from your brief. Accounts are off by default; read [Accounts, trial and billing](#accounts-trial-and-billing) to turn them on.
+That is enough to try the whole product. Without a model key the status pill reads **Local draft** and the local engine builds a starter portfolio from your brief. Accounts are off by default; read [Accounts, trial and billing](#accounts-trial-and-billing) to turn them on. With Google keys configured, the studio becomes private: signed-out visitors see only the sign-in wall.
 
 ## Connect a model
 
@@ -167,8 +168,11 @@ Portfolio Studio ships with an optional paid layer. It is **off by default** —
 **The model**
 
 - Sign in with Google. No passwords, no magic links, no auth vendor.
+- When Google keys exist, the studio is walled: the workspace does not render, and `/api/chat` refuses requests, until the visitor signs in.
 - A no-card trial starts at first sign-in. `TRIAL_DAYS` defaults to **7**.
-- The local draft engine stays free. **Claude generation is the paid part**: when the trial ends, the composer stays available but new model replies pause until you upgrade. Existing portfolios, template changes, previews, and HTML exports keep working.
+- The local draft engine stays free. **Claude generation is the paid part**: when the trial ends, the composer stays available but new model replies pause until you upgrade. Existing portfolios, template changes, and previews keep working.
+- Trial portfolios live for **14 days after creation**, then are hard-deleted with no recovery path. Upgrading before the cutoff keeps them permanently; upgrading after it cannot bring them back.
+- **HTML downloads are Pro-only.** Trial accounts can build, preview, revise, and save work, but the standalone file unlocks with the subscription.
 - One recurring plan through Stripe Checkout. Manage or cancel from Stripe's billing portal.
 - The UI shows `PRICE_LABEL`; the amount, currency, and interval live on the Stripe Price you create.
 
@@ -177,11 +181,12 @@ Portfolio Studio ships with an optional paid layer. It is **off by default** —
 | Data | Location |
 | --- | --- |
 | Account profile, trial end, Stripe customer + subscription state, hashed sessions, webhook IDs | D1 (Workers) or `.data/studio.db` (local Node) |
-| Conversations and blueprints | Browser `localStorage` |
+| Portfolio blueprints, creation time, 14-day expiry, expired-id tombstones | D1 (Workers) or `.data/studio.db` (local Node) |
+| Conversations and messages | Browser `localStorage`, scoped to the signed-in account |
 | Cards, invoices, subscription lifecycle | Stripe |
 | Name, email, avatar | Google identity, copied to your account record on first sign-in |
 
-Accounts do **not** sync chats between devices. Portfolios stay in the browser; the account only carries identity, trial, and plan. Model keys stay server-side, and the browser holds only an opaque, HttpOnly session cookie.
+Accounts do **not** sync conversations between devices; those stay on the device. Portfolio blueprints do sync to the account, so the studio can restore the design itself on another browser. Model keys stay server-side, and the browser holds only an opaque, HttpOnly session cookie.
 
 ### Google sign-in
 
@@ -254,9 +259,9 @@ Use Stripe's test cards and test-mode keys. No card data ever reaches the app; C
 
 | Configuration | Behavior |
 | --- | --- |
-| No Google keys | Accounts and paywall off. Model calls (if a model key is set) work as before. |
-| Google keys, no Stripe | Sign-in and trial display work, but there is no way to pay, so the paywall stays off. |
-| Google + Stripe | Trial enforced for model-backed chat; upgrade and billing portal active. |
+| No Google keys | Open studio: no wall, accounts, or paywall. Model calls (if a model key is set) work as before. |
+| Google keys, no Stripe | Private studio: sign-in is required, but there is no way to pay, so generation, exports, and portfolios stay unlimited. |
+| Google + Stripe | Private studio: sign-in wall, trial enforced for model-backed chat, 14-day hard delete on trial portfolios, Pro-only HTML downloads, and the billing portal active. |
 
 This keeps a cloned repo useful without creating third-party accounts. The live demo is in the first mode.
 
@@ -264,6 +269,7 @@ This keeps a cloned repo useful without creating third-party accounts. The live 
 
 - Opaque session tokens are stored as SHA-256 hashes; cookies are `HttpOnly`, `SameSite=Lax`, and `Secure` on HTTPS.
 - OAuth uses a short-lived state cookie and verifies the Google ID token's signature, issuer, audience, expiry, and `email_verified` claim.
+- Portfolio APIs require a session and scope every read, write, and delete to the session user; expired ids are tombstoned so a stale client cannot re-upload them.
 - Account mutations require same-origin requests. Stripe webhooks verify the exact raw payload with the signing secret and de-duplicate event IDs.
 - Add authentication and rate limiting before putting a model key on any public URL. This app gates **signed-in paid access**, but it does not include a per-user generation quota.
 
@@ -368,14 +374,14 @@ Responds with `text/event-stream`:
 | `done` | `{ "message": "...", "portfolio": { ... } }` |
 | `error` | `{ "message": "..." }` |
 
-When a configured paid studio blocks generation, `/api/chat` returns JSON instead of a stream:
+When a configured studio blocks a request, `/api/chat` returns JSON instead of a stream:
 
 | Status | `code` | Meaning |
 | --- | --- | --- |
-| `401` | `auth_required` | Sign in with Google to start the trial |
+| `401` | `auth_required` | Sign in with Google to open the studio |
 | `402` | `trial_expired` | The trial ended; open Checkout to keep writing |
 
-The offline draft engine is never paywalled. That keeps the public demo and self-hosted clones usable without accounts.
+The offline draft engine needs no subscription, but on a Google-configured deployment it still requires sign-in. Self-hosted clones without Google keys stay fully open.
 
 ## Scripts
 
@@ -383,7 +389,7 @@ The offline draft engine is never paywalled. That keeps the public demo and self
 | --- | --- |
 | `npm run dev` | Vite app + Express API with live reload |
 | `npm run typecheck` | TypeScript across the app, server, and Worker |
-| `npm test` | Access, OAuth-state, webhook, and session tests |
+| `npm test` | Access, portfolio expiry, OAuth-state, webhook, and session tests |
 | `npm run build` | Typecheck and build the SPA into `dist/` |
 | `npm run build:sites` | Build the app and bundle the deployable Worker |
 | `npm run start` | Serve the production build and API from Node |

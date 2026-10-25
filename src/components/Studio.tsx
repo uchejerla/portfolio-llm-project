@@ -17,6 +17,8 @@ import {
 
 interface StudioProps {
   portfolio: Portfolio | null;
+  expiresAt?: number | null;
+  exportLocked?: boolean;
   onChooseTemplate: (id: TemplateId) => void;
   onOpenGallery: () => void;
   onAccent: (accent: string) => void;
@@ -24,6 +26,10 @@ interface StudioProps {
   onExport: () => void;
   onOpen: () => void;
   onCopy: () => void;
+}
+
+function expiryLabel(timestamp: number): string {
+  return new Date(timestamp).toLocaleDateString(undefined, { month: "short", day: "numeric" });
 }
 
 type Device = "desktop" | "mobile";
@@ -75,6 +81,8 @@ function EmptyStudio({
 
 export function Studio({
   portfolio,
+  expiresAt,
+  exportLocked = false,
   onChooseTemplate,
   onOpenGallery,
   onAccent,
@@ -211,7 +219,16 @@ export function Studio({
                 <ExternalIcon width={14} height={14} />
                 Open
               </button>
-              <button type="button" className="primary-button" onClick={onExport}>
+              <button
+                type="button"
+                className={`primary-button ${exportLocked ? "is-locked" : ""}`}
+                onClick={onExport}
+                title={
+                  exportLocked
+                    ? "Upgrade to Studio Pro to download the standalone HTML"
+                    : "Download the standalone HTML"
+                }
+              >
                 <DownloadIcon width={14} height={14} />
                 Export
               </button>
@@ -255,6 +272,11 @@ export function Studio({
             <div>
               <b>{meta.name}</b>
               <span>{meta.description}</span>
+              {expiresAt && (
+                <span className="studio__expiry">
+                  Trial · deleted {expiryLabel(expiresAt)} unless you upgrade
+                </span>
+              )}
             </div>
             <button type="button" className="ghost-button ghost-button--icon" onClick={onOpenGallery}>
               <GridIcon width={14} height={14} />

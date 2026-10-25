@@ -25,6 +25,7 @@ export interface AccountState {
   authEnabled: boolean;
   billingEnabled: boolean;
   trialDays: number;
+  portfolioTrialDays: number;
   priceLabel: string;
   user: AccountUser | null;
   access: AccountAccess | null;
@@ -71,6 +72,8 @@ export async function fetchAccount(): Promise<AccountState | null> {
       authEnabled: data.authEnabled === true,
       billingEnabled: data.billingEnabled === true,
       trialDays: typeof data.trialDays === "number" ? data.trialDays : 7,
+      portfolioTrialDays:
+        typeof data.portfolioTrialDays === "number" ? data.portfolioTrialDays : 14,
       priceLabel: typeof data.priceLabel === "string" ? data.priceLabel : "$9 / month",
       user: readUser(data.user),
       access: readAccess(data.access),

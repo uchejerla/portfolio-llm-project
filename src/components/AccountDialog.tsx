@@ -52,6 +52,7 @@ export function AccountDialog({
   const billingEnabled = account?.billingEnabled ?? false;
   const priceLabel = account?.priceLabel ?? "$9 / month";
   const trialDays = account?.trialDays ?? 7;
+  const portfolioTrialDays = account?.portfolioTrialDays ?? 14;
 
   const heading = !authEnabled
     ? "Accounts are not configured."
@@ -95,7 +96,7 @@ export function AccountDialog({
     try {
       await signOutAccount();
       await onRefresh();
-      notify("Signed out. Your portfolios are still on this device.");
+      notify("Signed out. Your work stays with your account.");
       onClose();
     } catch (problem) {
       setError((problem as Error).message);
@@ -152,10 +153,11 @@ export function AccountDialog({
             <div className="account-signin">
               <div className="account-signin__mark">G</div>
               <div className="account-signin__copy">
-                <b>Your work stays yours.</b>
+                <b>                  Your work stays yours.
+                </b>
                 <p>
-                  Your portfolios remain in this browser. The account only carries your trial and
-                  plan, and Google shares your name, email, and avatar.
+                  Your portfolios save to your account, so you can pick them up on another device.
+                  Google shares your name, email, and avatar.
                 </p>
               </div>
               <a className="account-google" href="/api/auth/google/start">
@@ -244,13 +246,15 @@ export function AccountDialog({
 
               {plan === "trial" && billingEnabled && (
                 <p className="account-small">
-                  Your card is only charged when you upgrade. Cancel any time in Stripe.
+                  Your card is only charged when you upgrade. Portfolios are kept for{" "}
+                  {portfolioTrialDays} days after creation, then permanently deleted. Upgrade to
+                  keep them and unlock HTML downloads.
                 </p>
               )}
               {plan === "expired" && (
                 <p className="account-small">
-                  Portfolios and HTML exports stay available. Claude writing pauses until you
-                  upgrade.
+                  Your trial has ended. Portfolios are removed {portfolioTrialDays} days after
+                  creation, and HTML downloads are part of Pro. Upgrade to keep new work.
                 </p>
               )}
             </>
@@ -260,7 +264,11 @@ export function AccountDialog({
         </div>
 
         <footer className="modal__foot">
-          <span>Portfolios stay in this browser · payments by Stripe</span>
+          <span>
+            {authEnabled ? "Portfolios save to your account" : "Portfolios stay in this browser"}
+            {" · "}
+            {billingEnabled ? "payments by Stripe" : "open studio"}
+          </span>
           <button type="button" className="ghost-button" onClick={onClose}>
             Close
           </button>

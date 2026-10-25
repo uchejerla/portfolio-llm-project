@@ -27,6 +27,23 @@ export const SCHEMA: string[] = [
     type TEXT NOT NULL,
     created_at INTEGER NOT NULL
   )`,
+  `CREATE TABLE IF NOT EXISTS portfolios (
+    id TEXT PRIMARY KEY,
+    user_id TEXT NOT NULL,
+    title TEXT NOT NULL DEFAULT '',
+    data TEXT NOT NULL,
+    created_at INTEGER NOT NULL,
+    updated_at INTEGER NOT NULL,
+    expires_at INTEGER
+  )`,
+  `CREATE INDEX IF NOT EXISTS portfolios_user_idx ON portfolios (user_id)`,
+  `CREATE INDEX IF NOT EXISTS portfolios_expiry_idx ON portfolios (expires_at)`,
+  `CREATE TABLE IF NOT EXISTS expired_portfolios (
+    id TEXT NOT NULL,
+    user_id TEXT NOT NULL,
+    expired_at INTEGER NOT NULL,
+    PRIMARY KEY (id, user_id)
+  )`,
 ];
 
 export async function ensureSchema(db: Database): Promise<void> {

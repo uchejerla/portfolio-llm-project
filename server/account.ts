@@ -216,6 +216,34 @@ export async function markCheckoutComplete(
     Date.now(),
     input.userId,
   );
+  await keepPortfoliosForever(db, input.userId);
+}
+
+/** Upgrading before the 14-day clock ends rescues trial work permanently. */
+async function keepPortfoliosForever(db: Database, userId: string): Promise<void> {
+  const now = Date.now();
+  const expired = await db.all<{ id: string }>(
+    "SELECT id FROM portfolios WHERE user_id = ? AND expires_at IS NOT NULL AND expires_at <= ?",
+    userId,
+    now,
+  );
+  for (const row of expired) {
+    await db.run(
+      "INSERT OR IGNORE INTO expired_portfolios (id, user_id, expired_at) VALUES (?, ?, ?)",
+      row.id,
+      userId,
+      now,
+    );
+  }
+  await db.run(
+    "DELETE FROM portfolios WHERE user_id = ? AND expires_at IS NOT NULL AND expires_at <= ?",
+    userId,
+    now,
+  );
+  await db.run(
+    "UPDATE portfolios SET expires_at = NULL WHERE user_id = ? AND expires_at IS NOT NULL",
+    userId,
+  );
 }
 
 export async function saveSubscription(
@@ -239,6 +267,9 @@ export async function saveSubscription(
     Date.now(),
     input.userId,
   );
+  if (input.status === "active" || input.status === "trialing") {
+    await keepPortfoliosForever(db, input.userId);
+  }
 }
 
 export async function markPaymentFailed(

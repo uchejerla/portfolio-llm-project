@@ -1,6 +1,8 @@
 import type { AccountEnv, StudioConfig } from "./config";
 import { publicAccountConfig, readConfig } from "./config";
 import type { Database, UserRecord } from "./db/types";
+import type { Portfolio } from "../src/portfolio/types";
+import { deletePortfolio, listPortfolios, savePortfolio } from "./portfolios";
 import {
   accessFor,
   deleteCurrentSession,
@@ -28,6 +30,7 @@ import { resolveProvider } from "./providers";
 export type ApiEnv = ProviderEnv & AccountEnv;
 
 const MAX_WEBHOOK_BODY = 500_000;
+const MAX_PORTFOLIO_BODY = 300_000;
 
 function requireDatabase(db: Database | null): Response | null {
   return db ? null : json({ error: "Accounts are temporarily unavailable." }, 503);
@@ -203,6 +206,101 @@ async function handleLogout(request: Request, db: Database | null): Promise<Resp
   return response;
 }
 
+function portfolioId(pathname: string): string | null {
+  const raw = pathname.slice("/api/portfolios/".length);
+  if (!raw || raw.includes("/")) return null;
+  let id: string;
+  try {
+    id = decodeURIComponent(raw);
+  } catch {
+    return null;
+  }
+  return /^[A-Za-z0-9_-]{1,100}$/.test(id) ? id : null;
+}
+
+async function handlePortfolios(
+  request: Request,
+  config: StudioConfig,
+  db: Database | null,
+): Promise<Response> {
+  if (!config.authEnabled) {
+    return json({ error: "Accounts are not configured on this deployment." }, 503);
+  }
+  if (!db) return requireDatabase(db) as Response;
+
+  const user = await getSessionUser(request, db);
+  if (!user) {
+    return json({ error: "Sign in with Google to use the studio.", code: "auth_required" }, 401);
+  }
+
+  const access = accessFor(user, config);
+  // Portfolios are permanent for subscribers and for self-hosted installs.
+  const keepForever = !config.billingEnabled || access.plan === "pro";
+  const url = new URL(request.url);
+  const now = Date.now();
+
+  if (url.pathname === "/api/portfolios") {
+    if (request.method !== "GET") return methodNotAllowed("GET");
+    return json(await listPortfolios(db, user.id, { keepForever, now }));
+  }
+
+  const id = portfolioId(url.pathname);
+  if (!id) return json({ error: "Not found." }, 404);
+
+  if (request.method === "PUT") {
+    if (!isSameOrigin(request)) return json({ error: "Cross-origin request blocked." }, 403);
+
+    let text: string;
+    try {
+      text = await request.text();
+    } catch {
+      return json({ error: "Could not read the portfolio." }, 400);
+    }
+    if (text.length > MAX_PORTFOLIO_BODY) {
+      return json({ error: "That portfolio is too large to save." }, 413);
+    }
+
+    let body: { title?: unknown; portfolio?: unknown };
+    try {
+      body = JSON.parse(text) as typeof body;
+    } catch {
+      return json({ error: "Send a valid portfolio." }, 400);
+    }
+    if (!body.portfolio || typeof body.portfolio !== "object" || Array.isArray(body.portfolio)) {
+      return json({ error: "Send a valid portfolio." }, 400);
+    }
+
+    const result = await savePortfolio(db, user.id, {
+      id,
+      title: typeof body.title === "string" ? body.title : "",
+      portfolio: body.portfolio as Portfolio,
+      keepForever,
+      now,
+    });
+    if (!result.ok) {
+      if (result.reason === "expired") {
+        return json(
+          {
+            error: "This trial portfolio was deleted after 14 days and cannot be restored.",
+            code: "portfolio_expired",
+          },
+          410,
+        );
+      }
+      return json({ error: "That portfolio id is already in use." }, 409);
+    }
+    return json({ project: result.project });
+  }
+
+  if (request.method === "DELETE") {
+    if (!isSameOrigin(request)) return json({ error: "Cross-origin request blocked." }, 403);
+    await deletePortfolio(db, user.id, id);
+    return json({ ok: true });
+  }
+
+  return methodNotAllowed("GET, PUT, DELETE");
+}
+
 /**
  * Handles every API route except `/api/chat`, which needs its own streaming
  * transport in Node and Workers. Returns null for that route and non-API paths.
@@ -227,6 +325,10 @@ export async function handleApi(
   }
 
   if (url.pathname === "/api/me") return handleMe(request, config, db);
+
+  if (url.pathname === "/api/portfolios" || url.pathname.startsWith("/api/portfolios/")) {
+    return handlePortfolios(request, config, db);
+  }
 
   if (url.pathname === "/api/auth/google/start") {
     if (request.method !== "GET") return methodNotAllowed("GET");
@@ -256,8 +358,9 @@ export async function handleApi(
 }
 
 /**
- * Only model-backed chat is paid. The local draft engine stays open so the
- * public demo and self-hosted clones keep working without accounts.
+ * A deployment with Google configured is a private studio: every chat request
+ * needs a session, even when the local draft engine is the one answering.
+ * Subscriptions only add the second gate on model-backed generation.
  */
 export async function denyChatIfRequired(
   request: Request,
@@ -265,9 +368,7 @@ export async function denyChatIfRequired(
   db: Database | null,
 ): Promise<Response | null> {
   const config = readConfig(env);
-  if (!config.billingEnabled) return null;
-  const provider = resolveProvider(env);
-  if (provider.provider === "offline") return null;
+  if (!config.authEnabled) return null;
   if (!isSameOrigin(request)) return json({ error: "Cross-origin request blocked." }, 403);
   if (!db) return json({ error: "Accounts are temporarily unavailable." }, 503);
 
@@ -275,22 +376,26 @@ export async function denyChatIfRequired(
   if (!user) {
     return json(
       {
-        error: "Sign in with Google to start your free trial.",
+        error: "Sign in with Google to use the studio.",
         code: "auth_required",
       },
       401,
     );
   }
-  const access = accessFor(user, config);
-  if (!access.canGenerate) {
-    return json(
-      {
-        error: "Your trial has ended. Upgrade to keep writing with Claude.",
-        code: "trial_expired",
-        priceLabel: config.priceLabel,
-      },
-      402,
-    );
+
+  const provider = resolveProvider(env);
+  if (config.billingEnabled && provider.provider !== "offline") {
+    const access = accessFor(user, config);
+    if (!access.canGenerate) {
+      return json(
+        {
+          error: "Your trial has ended. Upgrade to keep writing with Claude.",
+          code: "trial_expired",
+          priceLabel: config.priceLabel,
+        },
+        402,
+      );
+    }
   }
   return null;
 }

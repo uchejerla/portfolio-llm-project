@@ -9,10 +9,12 @@ import { Studio } from "./components/Studio";
 import { TemplateGallery } from "./components/TemplateGallery";
 import { SettingsDialog } from "./components/SettingsDialog";
 import { AccountDialog } from "./components/AccountDialog";
+import { SignInWall, StudioBoot } from "./components/SignInWall";
 import type { Attachment, SendMeta, ToastMessage } from "./lib/types";
 import type { AccountIntent, AccountState } from "./lib/account";
 import { fetchAccount } from "./lib/account";
 import { fetchStatus, streamChat } from "./lib/chatApi";
+import { deletePortfolio, listPortfolios, PortfolioApiError, savePortfolio } from "./lib/portfolioApi";
 import {
   loadChats,
   loadStudioOpen,
@@ -30,8 +32,10 @@ function makeId(): string {
 }
 
 export default function App() {
-  const [chats, setChats] = useState<Chat[]>(loadChats);
-  const [activeId, setActiveId] = useState<string | null>(() => chats[0]?.id ?? null);
+  const [chats, setChats] = useState<Chat[]>([]);
+  const [chatsLoaded, setChatsLoaded] = useState(false);
+  const [loadedScope, setLoadedScope] = useState<string | null>(null);
+  const [activeId, setActiveId] = useState<string | null>(null);
   const [scratchPortfolio, setScratchPortfolio] = useState<Portfolio | null>(null);
   const [theme, setTheme] = useState<"light" | "dark">(loadTheme);
   const [studioOpen, setStudioOpen] = useState<boolean>(loadStudioOpen);
@@ -43,6 +47,8 @@ export default function App() {
   const [galleryOpen, setGalleryOpen] = useState(false);
   const [settingsOpen, setSettingsOpen] = useState(false);
   const [account, setAccount] = useState<AccountState | null>(null);
+  const [accountLoaded, setAccountLoaded] = useState(false);
+  const [authError, setAuthError] = useState(false);
   const [accountOpen, setAccountOpen] = useState(false);
   const [accountIntent, setAccountIntent] = useState<AccountIntent>("account");
   const [toast, setToast] = useState<ToastMessage | null>(null);
@@ -51,13 +57,22 @@ export default function App() {
   const streamTextRef = useRef("");
   const pendingPortfolioRef = useRef<Portfolio | null>(null);
   const toastTimer = useRef<number | null>(null);
+  const chatsRef = useRef<Chat[]>([]);
+  const syncedUserRef = useRef<string | null>(null);
+  const saveTimersRef = useRef<Map<string, number>>(new Map());
+  const deleteTimersRef = useRef<Map<string, number>>(new Map());
 
   const activeChat = chats.find((chat) => chat.id === activeId) ?? null;
   const portfolio = activeChat?.portfolio ?? scratchPortfolio;
+  const accountScope = account ? (account.user?.id ?? "local") : null;
+  const scopeReady = Boolean(account) && chatsLoaded && accountScope === loadedScope;
+  const canSync = Boolean(account?.authEnabled && account.user);
+  const canExport = !account?.authEnabled || !account.billingEnabled || account.access?.plan === "pro";
 
   useEffect(() => {
-    saveChats(chats);
-  }, [chats]);
+    if (!chatsLoaded || !loadedScope) return;
+    saveChats(chats, loadedScope);
+  }, [chats, chatsLoaded, loadedScope]);
 
   useEffect(() => {
     document.documentElement.dataset.theme = theme;
@@ -69,9 +84,67 @@ export default function App() {
   }, [studioOpen]);
 
   useEffect(() => {
-    void fetchStatus().then(setStatus);
-    void fetchAccount().then(setAccount);
+    let cancelled = false;
+    void fetchStatus().then((next) => {
+      if (!cancelled) setStatus(next);
+    });
+    void fetchAccount().then((next) => {
+      if (cancelled) return;
+      setAccount(next);
+      setAccountLoaded(true);
+    });
+    return () => {
+      cancelled = true;
+    };
   }, []);
+
+  useEffect(() => {
+    if (!account) return;
+    const scope = account.user?.id ?? "local";
+    if (loadedScope === scope) return;
+    for (const timer of saveTimersRef.current.values()) window.clearTimeout(timer);
+    saveTimersRef.current.clear();
+    for (const timer of deleteTimersRef.current.values()) window.clearTimeout(timer);
+    deleteTimersRef.current.clear();
+
+    let loaded = loadChats(scope);
+    if (scope !== "local" && loaded.length === 0) {
+      // Claim work made before accounts were switched on, exactly once.
+      const legacy = loadChats("local");
+      if (legacy.length) {
+        loaded = legacy;
+        saveChats(legacy, scope);
+        saveChats([], "local");
+      }
+    }
+    syncedUserRef.current = null;
+    setChats(loaded);
+    setChatsLoaded(true);
+    setLoadedScope(scope);
+    setActiveId(loaded[0]?.id ?? null);
+    setScratchPortfolio(null);
+  }, [account, loadedScope]);
+
+  useEffect(() => {
+    chatsRef.current = chats;
+  }, [chats]);
+
+  useEffect(() => {
+    if (account?.access?.plan !== "pro") return;
+    setChats((current) =>
+      current.some((chat) => chat.expiresAt)
+        ? current.map((chat) => (chat.expiresAt ? { ...chat, expiresAt: null } : chat))
+        : current,
+    );
+  }, [account?.access?.plan]);
+
+  useEffect(() => {
+    if (!chatsLoaded) return;
+    if (activeId && !chats.some((chat) => chat.id === activeId)) {
+      setActiveId(chats[0]?.id ?? null);
+      setScratchPortfolio(null);
+    }
+  }, [chats, activeId, chatsLoaded]);
 
   const notify = useCallback((text: string, actionLabel?: string, action?: () => void) => {
     setToast({ id: makeId(), text, actionLabel, action });
@@ -79,10 +152,91 @@ export default function App() {
     toastTimer.current = window.setTimeout(() => setToast(null), 4800);
   }, []);
 
-  const refreshAccount = useCallback(async () => {
+  const refreshAccount = useCallback(async (): Promise<void> => {
     const next = await fetchAccount();
-    if (next) setAccount(next);
+    setAccount(next);
+    setAccountLoaded(true);
   }, []);
+
+  const saveNow = useCallback(
+    async (chatId: string, title: string, next: Portfolio) => {
+      if (!canSync) return;
+      try {
+        const stored = await savePortfolio(chatId, title, next);
+        setChats((current) =>
+          current.map((chat) =>
+            chat.id === chatId ? { ...chat, expiresAt: stored.expiresAt } : chat,
+          ),
+        );
+      } catch (error) {
+        if (error instanceof PortfolioApiError && error.status === 410) {
+          setChats((current) => current.filter((chat) => chat.id !== chatId));
+          notify("That trial portfolio passed its 14-day limit and was permanently deleted.");
+        }
+      }
+    },
+    [canSync, notify],
+  );
+
+  const saveNowRef = useRef(saveNow);
+  useEffect(() => {
+    saveNowRef.current = saveNow;
+  }, [saveNow]);
+
+  const queueSave = useCallback(
+    (chatId: string, title: string, next: Portfolio, immediate = false) => {
+      if (!canSync) return;
+      const timers = saveTimersRef.current;
+      const pending = timers.get(chatId);
+      if (pending) window.clearTimeout(pending);
+      if (immediate) {
+        timers.delete(chatId);
+        void saveNow(chatId, title, next);
+        return;
+      }
+      timers.set(
+        chatId,
+        window.setTimeout(() => {
+          timers.delete(chatId);
+          void saveNow(chatId, title, next);
+        }, 700),
+      );
+    },
+    [canSync, saveNow],
+  );
+
+  const queueServerDelete = useCallback(
+    (chatId: string) => {
+      if (!canSync) return;
+      const timers = deleteTimersRef.current;
+      const pending = timers.get(chatId);
+      if (pending) window.clearTimeout(pending);
+      timers.set(
+        chatId,
+        window.setTimeout(() => {
+          timers.delete(chatId);
+          void deletePortfolio(chatId);
+        }, 5000),
+      );
+    },
+    [canSync],
+  );
+
+  const cancelServerDelete = useCallback((chatId: string) => {
+    const timer = deleteTimersRef.current.get(chatId);
+    if (timer) {
+      window.clearTimeout(timer);
+      deleteTimersRef.current.delete(chatId);
+    }
+  }, []);
+
+  useEffect(
+    () => () => {
+      for (const timer of saveTimersRef.current.values()) window.clearTimeout(timer);
+      for (const timer of deleteTimersRef.current.values()) window.clearTimeout(timer);
+    },
+    [],
+  );
 
   const openAccount = useCallback((intent: AccountIntent = "account") => {
     setAccountIntent(intent);
@@ -102,9 +256,11 @@ export default function App() {
 
     let timer: number | null = null;
     if (auth === "success") {
+      setAuthError(false);
       void refreshAccount();
       notify("Signed in with Google.");
     } else if (auth === "error") {
+      setAuthError(true);
       notify("Google sign-in didn't finish. Please try again.");
     }
 
@@ -130,6 +286,104 @@ export default function App() {
       if (timer) window.clearInterval(timer);
     };
   }, [notify, refreshAccount]);
+
+  useEffect(() => {
+    const userId = account?.authEnabled ? account.user?.id ?? null : null;
+    if (!userId || !chatsLoaded || !scopeReady) return;
+    if (syncedUserRef.current === userId) return;
+    syncedUserRef.current = userId;
+    let cancelled = false;
+
+    void (async () => {
+      const result = await listPortfolios();
+      if (cancelled) return;
+      if (!result) {
+        syncedUserRef.current = null;
+        return;
+      }
+
+      const expired = new Set(result.expiredIds);
+      const remote = new Map(result.projects.map((project) => [project.id, project]));
+      const replacements = new Map<
+        string,
+        { portfolio: Portfolio; expiresAt: number | null; updatedAt: number }
+      >();
+      const additions: Chat[] = [];
+      const pushes: Array<{ id: string; title: string; portfolio: Portfolio }> = [];
+
+      for (const chat of chatsRef.current) {
+        if (expired.has(chat.id)) continue;
+        const server = remote.get(chat.id);
+        if (!server) {
+          if (chat.portfolio) {
+            pushes.push({ id: chat.id, title: chat.title, portfolio: chat.portfolio });
+          }
+          continue;
+        }
+        remote.delete(chat.id);
+        if (server.updatedAt > chat.updatedAt) {
+          replacements.set(chat.id, {
+            portfolio: server.portfolio,
+            expiresAt: server.expiresAt,
+            updatedAt: server.updatedAt,
+          });
+        } else if (chat.updatedAt > server.updatedAt && chat.portfolio) {
+          pushes.push({ id: chat.id, title: chat.title, portfolio: chat.portfolio });
+        }
+      }
+
+      for (const server of remote.values()) {
+        if (expired.has(server.id)) continue;
+        additions.push({
+          id: server.id,
+          title: server.title || server.portfolio.name || "Portfolio",
+          createdAt: server.createdAt,
+          updatedAt: server.updatedAt,
+          messages: [],
+          portfolio: server.portfolio,
+          expiresAt: server.expiresAt,
+        });
+      }
+
+      if (replacements.size || additions.length || expired.size) {
+        setChats((current) => {
+          const next = current
+            .filter((chat) => !expired.has(chat.id))
+            .map((chat) => {
+              const server = replacements.get(chat.id);
+              return server
+                ? {
+                    ...chat,
+                    portfolio: server.portfolio,
+                    expiresAt: server.expiresAt,
+                    updatedAt: Math.max(chat.updatedAt, server.updatedAt),
+                  }
+                : chat;
+            });
+          const existing = new Set(next.map((chat) => chat.id));
+          for (const addition of additions) {
+            if (!existing.has(addition.id)) next.push(addition);
+          }
+          return next.sort((a, b) => b.updatedAt - a.updatedAt);
+        });
+      }
+
+      if (expired.size) {
+        notify(
+          expired.size === 1
+            ? "A trial portfolio passed its 14-day limit and was permanently deleted."
+            : `${expired.size} trial portfolios passed their 14-day limit and were permanently deleted.`,
+        );
+      }
+      for (const push of pushes) {
+        void saveNowRef.current(push.id, push.title, push.portfolio);
+      }
+    })();
+
+    return () => {
+      cancelled = true;
+    };
+  }, [account?.authEnabled, account?.user?.id, chatsLoaded, scopeReady, notify]);
 
   const stopStreaming = useCallback(() => {
     abortRef.current?.abort();
@@ -175,27 +429,33 @@ export default function App() {
 
   const deleteChat = (id: string) => {
     const previous = chats;
+    const removed = chats.find((chat) => chat.id === id) ?? null;
     const remaining = chats.filter((chat) => chat.id !== id);
     setChats(remaining);
     if (activeId === id) {
       if (streamChatId === id) abortRef.current?.abort();
       setActiveId(remaining[0]?.id ?? null);
     }
+    queueServerDelete(id);
     notify("Conversation deleted.", "Undo", () => {
+      cancelServerDelete(id);
       setChats(previous);
       setActiveId(id);
+      if (removed?.portfolio) queueSave(id, removed.title, removed.portfolio, true);
     });
   };
 
   const updatePortfolio = (next: Portfolio) => {
     if (activeChat) {
+      const now = Date.now();
       setChats((current) =>
         current.map((chat) =>
           chat.id === activeChat.id
-            ? { ...chat, portfolio: next, updatedAt: Date.now() }
+            ? { ...chat, portfolio: next, updatedAt: now }
             : chat,
         ),
       );
+      queueSave(activeChat.id, activeChat.title, next);
     } else {
       setScratchPortfolio(next);
     }
@@ -340,6 +600,7 @@ export default function App() {
             : item,
         ),
       );
+      if (options.portfolio) queueSave(chatId, title, options.portfolio, true);
     };
 
     try {
@@ -393,6 +654,15 @@ export default function App() {
 
   const exportPortfolio = () => {
     if (!portfolio) return;
+    if (!canExport) {
+      openAccount("upgrade");
+      notify(
+        account?.priceLabel
+          ? `HTML downloads unlock with Studio Pro — ${account.priceLabel}.`
+          : "Upgrade to Studio Pro to download your portfolio.",
+      );
+      return;
+    }
     const html = renderPortfolio(portfolio);
     const blob = new Blob([html], { type: "text/html;charset=utf-8" });
     const url = URL.createObjectURL(blob);
@@ -425,6 +695,15 @@ export default function App() {
   };
 
   const toggleTheme = () => setTheme((current) => (current === "light" ? "dark" : "light"));
+
+  if (!accountLoaded) return <StudioBoot />;
+  if (!account) {
+    return <StudioBoot error onRetry={() => void refreshAccount()} />;
+  }
+  if (account.authEnabled && !account.user) {
+    return <SignInWall account={account} authError={authError} />;
+  }
+  if (!scopeReady) return <StudioBoot />;
 
   return (
     <div className="app">
@@ -473,6 +752,8 @@ export default function App() {
         {studioOpen && (
           <Studio
             portfolio={portfolio}
+            expiresAt={activeChat?.expiresAt ?? null}
+            exportLocked={!canExport}
             onChooseTemplate={chooseTemplate}
             onOpenGallery={() => setGalleryOpen(true)}
             onAccent={changeAccent}

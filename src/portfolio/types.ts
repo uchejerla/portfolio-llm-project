@@ -96,6 +96,8 @@ export interface Chat {
   updatedAt: number;
   messages: ChatMessage[];
   portfolio: Portfolio | null;
+  /** Last known hard-delete time for trial work; null for Pro or local drafts. */
+  expiresAt?: number | null;
 }
 
 export interface ServerStatus {
@@ -105,5 +107,6 @@ export interface ServerStatus {
   authEnabled?: boolean;
   billingEnabled?: boolean;
   trialDays?: number;
+  portfolioTrialDays?: number;
   priceLabel?: string;
 }

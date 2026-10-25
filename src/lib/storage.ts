@@ -5,9 +5,14 @@ const CHATS_KEY = "portfolio-studio:chats:v1";
 const THEME_KEY = "portfolio-studio:theme";
 const STUDIO_KEY = "portfolio-studio:studio-open";
 
-export function loadChats(): Chat[] {
+/** Local drafts keep the old key; each signed-in account gets its own bucket. */
+function chatsKey(scope: string): string {
+  return scope === "local" ? CHATS_KEY : `${CHATS_KEY}:${scope}`;
+}
+
+export function loadChats(scope = "local"): Chat[] {
   try {
-    const raw = localStorage.getItem(CHATS_KEY);
+    const raw = localStorage.getItem(chatsKey(scope));
     if (!raw) return [];
     const parsed = JSON.parse(raw);
     if (!Array.isArray(parsed)) return [];
@@ -33,6 +38,10 @@ export function loadChats(): Chat[] {
             error: Boolean(message.error),
           })),
         portfolio: chat.portfolio ? normalizePortfolio(chat.portfolio) : null,
+        expiresAt:
+          typeof chat.expiresAt === "number" && Number.isFinite(chat.expiresAt)
+            ? chat.expiresAt
+            : null,
       }))
       .sort((a, b) => b.updatedAt - a.updatedAt);
   } catch {
@@ -40,9 +49,9 @@ export function loadChats(): Chat[] {
   }
 }
 
-export function saveChats(chats: Chat[]) {
+export function saveChats(chats: Chat[], scope = "local") {
   try {
-    localStorage.setItem(CHATS_KEY, JSON.stringify(chats));
+    localStorage.setItem(chatsKey(scope), JSON.stringify(chats));
   } catch {
     // Storage can be full or unavailable; the session still works in memory.
   }
