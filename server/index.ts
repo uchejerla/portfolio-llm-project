@@ -2,20 +2,98 @@ import "dotenv/config";
 import express from "express";
 import fs from "node:fs";
 import path from "node:path";
+import { Readable } from "node:stream";
 import { fileURLToPath } from "node:url";
-import type { Response } from "express";
+import type { Request as ExpressRequest, Response as ExpressResponse } from "express";
 import type { ChatMessage, Portfolio } from "../src/portfolio/types";
 import { normalizePortfolio } from "../src/portfolio/normalize";
 import { resolveProvider, streamAnthropic, streamOpenAI, ProviderError } from "./providers";
 import { SYSTEM_PROMPT, prepareMessages } from "./prompt";
 import { extractMessage, extractPortfolio, visibleMessage } from "./parse";
 import { buildOfflineReply } from "./offline";
+import { denyChatIfRequired, handleApi } from "./api";
+import { readConfig } from "./config";
+import { openLocalDatabase } from "./db/node";
 
 const app = express();
-app.use(express.json({ limit: "1mb" }));
 
 const providerInfo = resolveProvider(process.env);
+const config = readConfig(process.env);
 const PORT = Number(process.env.PORT) || 8787;
+const db = await openLocalDatabase(
+  process.env.STUDIO_DB_PATH || path.resolve(process.cwd(), ".data", "studio.db"),
+);
+
+function webRequest(req: ExpressRequest, body?: BodyInit): Request {
+  const url = `${req.protocol}://${req.get("host")}${req.originalUrl}`;
+  const headers = new Headers();
+  for (const [key, value] of Object.entries(req.headers)) {
+    if (typeof value === "string") headers.set(key, value);
+    else if (Array.isArray(value)) headers.set(key, value.join(", "));
+  }
+  headers.delete("host");
+  headers.delete("content-length");
+  const method = req.method.toUpperCase();
+  const requestBody = method === "GET" || method === "HEAD" ? undefined : body;
+  return new Request(url, { method, headers, body: requestBody });
+}
+
+function sendWebResponse(res: ExpressResponse, response: globalThis.Response): void {
+  res.status(response.status);
+  response.headers.forEach((value, key) => {
+    if (key.toLowerCase() !== "set-cookie") res.setHeader(key, value);
+  });
+  const cookies =
+    (response.headers as Headers & { getSetCookie?: () => string[] }).getSetCookie?.() ?? [];
+  if (cookies.length) res.setHeader("set-cookie", cookies);
+  if (!response.body) {
+    res.end();
+    return;
+  }
+  Readable.fromWeb(response.body as unknown as import("node:stream/web").ReadableStream).pipe(res);
+}
+
+// Raw body first: Stripe verifies the exact bytes of the webhook payload.
+app.post(
+  "/api/billing/webhook",
+  express.raw({ type: "application/json", limit: "512kb" }),
+  async (req, res) => {
+    try {
+      const raw = Buffer.isBuffer(req.body) ? req.body : Buffer.from("");
+      const response = await handleApi(
+        webRequest(req, raw as unknown as BodyInit),
+        process.env,
+        db,
+      );
+      if (response) sendWebResponse(res, response);
+      else res.status(404).json({ error: "Not found." });
+    } catch (error) {
+      console.error("Stripe webhook failed", error);
+      res.status(500).json({ error: "Webhook processing failed." });
+    }
+  },
+);
+
+app.use(express.json({ limit: "1mb" }));
+
+// Account, auth, billing, and status routes are shared with the Worker.
+app.all("/api/*", async (req, res, next) => {
+  try {
+    const body =
+      req.method === "GET" || req.method === "HEAD" || req.body === undefined
+        ? undefined
+        : JSON.stringify(req.body);
+    const response = await handleApi(webRequest(req, body), process.env, db);
+    if (!response) {
+      next();
+      return;
+    }
+    sendWebResponse(res, response);
+  } catch (error) {
+    console.error("API request failed", error);
+    if (!res.headersSent) res.status(500).json({ error: "The studio hit a server error." });
+  }
+});
 
 const SSE_HEADERS = {
   "Content-Type": "text/event-stream; charset=utf-8",
@@ -24,7 +102,7 @@ const SSE_HEADERS = {
   "X-Accel-Buffering": "no",
 };
 
-function sendEvent(res: Response, event: string, data: unknown) {
+function sendEvent(res: ExpressResponse, event: string, data: unknown) {
   if (res.writableEnded) return;
   res.write(`event: ${event}\ndata: ${JSON.stringify(data)}\n\n`);
 }
@@ -33,15 +111,13 @@ function delay(ms: number) {
   return new Promise((resolve) => setTimeout(resolve, ms));
 }
 
-app.get("/api/status", (_req, res) => {
-  res.json({
-    provider: providerInfo.provider,
-    model: providerInfo.model,
-    ready: providerInfo.provider !== "offline",
-  });
-});
-
 app.post("/api/chat", async (req, res) => {
+  const denied = await denyChatIfRequired(webRequest(req), process.env, db);
+  if (denied) {
+    sendWebResponse(res, denied);
+    return;
+  }
+
   const body = req.body as {
     messages?: unknown;
     portfolio?: unknown;
@@ -202,5 +278,12 @@ app.listen(PORT, "0.0.0.0", () => {
   );
   if (providerInfo.provider === "offline") {
     console.log("No model key found — using the local draft engine. Add ANTHROPIC_API_KEY to .env for Claude.");
+  }
+  if (!config.authEnabled) {
+    console.log("Google sign-in is off. Set GOOGLE_CLIENT_ID and GOOGLE_CLIENT_SECRET to enable accounts.");
+  } else if (!config.billingEnabled) {
+    console.log("Stripe billing is off. The studio is running without a paywall.");
+  } else {
+    console.log(`Accounts on · ${config.trialDays}-day trial · ${config.priceLabel}`);
   }
 });

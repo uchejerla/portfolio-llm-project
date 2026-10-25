@@ -1,7 +1,10 @@
 import { useMemo, useState } from "react";
 import type { Chat, ServerStatus } from "../portfolio/types";
+import type { AccountState } from "../lib/account";
+import { accountDetail, accountName } from "../lib/account";
 import { dayGroup, relativeTime } from "../lib/storage";
 import { formatModel } from "../lib/samples";
+import { Avatar } from "./Avatar";
 import {
   MoonIcon,
   PlusIcon,
@@ -18,11 +21,13 @@ interface SidebarProps {
   activeId: string | null;
   status: ServerStatus | null;
   theme: "light" | "dark";
+  account: AccountState | null;
   onNewChat: () => void;
   onSelectChat: (id: string) => void;
   onDeleteChat: (id: string) => void;
   onToggleTheme: () => void;
   onOpenSettings: () => void;
+  onOpenAccount: () => void;
   onClose: () => void;
 }
 
@@ -38,6 +43,8 @@ export function Sidebar({
   onDeleteChat,
   onToggleTheme,
   onOpenSettings,
+  onOpenAccount,
+  account,
   onClose,
 }: SidebarProps) {
   const [query, setQuery] = useState("");
@@ -161,13 +168,17 @@ export function Sidebar({
           <span className="side-tools__version">v1.0</span>
         </div>
 
-        <div className="profile">
-          <span className="profile__avatar">PS</span>
+        <button className="profile profile--button" type="button" onClick={onOpenAccount}>
+          <Avatar
+            user={account?.user ?? null}
+            className="profile__avatar"
+            fallback={account?.authEnabled ? "G" : "PS"}
+          />
           <span className="profile__text">
-            <b>Local workspace</b>
-            <small>Saved on this device</small>
+            <b>{accountName(account)}</b>
+            <small>{accountDetail(account)}</small>
           </span>
-        </div>
+        </button>
       </div>
     </aside>
   );

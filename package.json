@@ -3,7 +3,7 @@
   "private": true,
   "version": "1.0.0",
   "type": "module",
-  "description": "A Claude-style studio for turning your story into a cinematic portfolio website.",
+  "description": "A Claude-style studio for turning your story into a cinematic portfolio website, with Google sign-in, a free trial, and Stripe subscriptions.",
   "scripts": {
     "dev": "concurrently -k -n web,api -c cyan,magenta \"vite\" \"tsx watch server/index.ts\"",
     "dev:web": "vite",
@@ -11,19 +11,24 @@
     "build": "tsc --noEmit && vite build",
     "build:sites": "npm run build && esbuild worker/index.ts --bundle --format=esm --platform=browser --target=es2022 --outfile=sites-build/worker.js",
     "typecheck": "tsc --noEmit",
+    "test": "tsx --test tests/*.test.ts",
     "start": "tsx server/index.ts",
     "preview": "vite preview"
   },
   "dependencies": {
+    "better-sqlite3": "^13.0.3",
     "dotenv": "^16.4.7",
     "express": "^4.21.2",
+    "jose": "^6.2.13",
     "motion": "^11.15.0",
+    "posthog-js": "1.438.13",
     "react": "^18.3.1",
     "react-dom": "^18.3.1",
     "react-markdown": "^9.0.3",
     "remark-gfm": "^4.0.0"
   },
   "devDependencies": {
+    "@types/better-sqlite3": "^9.6.0",
     "@types/express": "^4.17.21",
     "@types/node": "^22.10.5",
     "@types/react": "^18.3.18",

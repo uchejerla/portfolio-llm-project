@@ -1,6 +1,12 @@
-import { useState } from "react";
+import { useState, useSyncExternalStore } from "react";
 import type { ServerStatus } from "../portfolio/types";
 import { formatModel } from "../lib/samples";
+import {
+  grantAnalyticsConsent,
+  readAnalyticsConsent,
+  subscribeAnalyticsConsent,
+  withdrawAnalyticsConsent,
+} from "../lib/analytics-consent.mjs";
 import { CheckIcon, CopyIcon, SparkIcon, XIcon } from "./Icons";
 
 interface SettingsDialogProps {
@@ -19,6 +25,11 @@ OPENAI_MODEL=gpt-4.1-mini`;
 
 export function SettingsDialog({ status, onClose }: SettingsDialogProps) {
   const [copied, setCopied] = useState(false);
+  const consent = useSyncExternalStore(
+    subscribeAnalyticsConsent,
+    readAnalyticsConsent,
+    (): "granted" | "denied" | "unknown" => "unknown",
+  );
   const connected = status?.provider === "anthropic" || status?.provider === "openai";
 
   const copyEnv = async () => {
@@ -91,10 +102,34 @@ export function SettingsDialog({ status, onClose }: SettingsDialogProps) {
         </section>
 
         <section className="settings-block">
+          <h3>Session replay</h3>
+          <p>
+            Off by default. Turning it on records a masked replay of this studio — pages, clicks and
+            layout — so rough edges are easier to spot. Inputs, text, canvases, request bodies,
+            headers and URL query strings are excluded before anything is sent.
+          </p>
+          <label className="settings-toggle">
+            <input
+              type="checkbox"
+              checked={consent === "granted"}
+              onChange={(event) => {
+                if (event.target.checked) grantAnalyticsConsent();
+                else withdrawAnalyticsConsent();
+              }}
+            />
+            <span>Record masked session replays of this studio</span>
+          </label>
+        </section>
+
+        <section className="settings-block">
           <h3>Fine print</h3>
           <ul className="settings-list">
             <li>Conversations and blueprints are saved in this browser only.</li>
             <li>Exports are self-contained HTML — no account, framework or hosting required.</li>
+            <li>
+              If accounts are enabled, Google shares your name, email and avatar. Your trial and
+              plan are stored on the server; cards are handled by Stripe and never touch the studio.
+            </li>
             <li>
               Without a key, the local draft engine assembles a starter portfolio from your brief.
               It can change templates and colours, but it cannot rewrite copy.

@@ -568,17 +568,40 @@ a {
   border-top: 1px solid var(--line-soft);
 }
 
-.profile__avatar {
+.profile--button {
+  width: 100%;
+  border-radius: 7px;
+  text-align: left;
+  transition: background 0.15s ease;
+}
+
+.profile--button:hover {
+  background: var(--hover);
+}
+
+.avatar {
   width: 26px;
   height: 26px;
   border-radius: 50%;
   background: var(--accent-soft);
   color: var(--accent);
-  display: grid;
+  display: inline-grid;
   place-items: center;
   font-size: 9.5px;
   font-weight: 600;
   flex: none;
+  object-fit: cover;
+  overflow: hidden;
+}
+
+img.avatar {
+  display: block;
+}
+
+.profile__avatar {
+  width: 26px;
+  height: 26px;
+  font-size: 9.5px;
 }
 
 .profile__text {
@@ -586,17 +609,49 @@ a {
   flex-direction: column;
   line-height: 1.3;
   min-width: 0;
+  flex: 1;
 }
 
 .profile__text b {
   font-size: 10.5px;
   font-weight: 500;
   color: var(--ink-soft);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
 }
 
 .profile__text small {
   font-size: 9.5px;
   color: var(--muted);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.account-pill {
+  height: 30px;
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  padding: 0 8px 0 4px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  font-size: 10px;
+  color: var(--ink-soft);
+  white-space: nowrap;
+  transition: border-color 0.16s ease, background 0.16s ease;
+}
+
+.account-pill:hover {
+  border-color: var(--line-strong);
+  background: var(--hover);
+}
+
+.account-pill__avatar {
+  width: 22px;
+  height: 22px;
+  font-size: 8px;
 }
 
 /* ---------------------------------------------------------------- chat pane */
@@ -2367,6 +2422,24 @@ a {
   text-align: right;
 }
 
+.settings-toggle {
+  display: flex;
+  align-items: center;
+  gap: 9px;
+  margin-top: 2px;
+  font-size: 11.5px;
+  line-height: 1.5;
+  color: var(--ink-soft);
+  cursor: pointer;
+}
+
+.settings-toggle input {
+  width: 14px;
+  height: 14px;
+  accent-color: var(--accent);
+  cursor: pointer;
+}
+
 .settings-list {
   margin: 0;
   padding-left: 15px;
@@ -2381,6 +2454,364 @@ a {
 
 .settings-list li::marker {
   color: var(--accent);
+}
+
+.modal--account {
+  width: min(480px, 100%);
+}
+
+.account {
+  padding: 18px 24px 4px;
+}
+
+.account-setup {
+  display: flex;
+  gap: 11px;
+  padding: 13px;
+  border: 1px dashed var(--line-strong);
+  border-radius: 10px;
+  background: var(--card);
+}
+
+.account-setup__mark {
+  width: 32px;
+  height: 32px;
+  border-radius: 8px;
+  display: grid;
+  place-items: center;
+  background: var(--accent-soft);
+  color: var(--accent);
+  flex: none;
+}
+
+.account-setup b {
+  display: block;
+  font-size: 11.5px;
+  font-weight: 550;
+}
+
+.account-setup p {
+  margin: 3px 0 0;
+  font-size: 10.5px;
+  line-height: 1.6;
+  color: var(--muted);
+}
+
+.account-signin {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 13px;
+}
+
+.account-signin__mark {
+  width: 42px;
+  height: 42px;
+  border-radius: 50%;
+  display: grid;
+  place-items: center;
+  background: #fff;
+  color: #4285f4;
+  font-size: 18px;
+  font-weight: 650;
+  box-shadow: 0 1px 4px rgba(32, 33, 36, 0.16);
+}
+
+.account-signin__copy b {
+  display: block;
+  font-family: var(--font-serif);
+  font-size: 23px;
+  font-weight: 400;
+  letter-spacing: -0.01em;
+  line-height: 1.1;
+  margin-bottom: 5px;
+}
+
+.account-signin__copy p {
+  margin: 0;
+  font-size: 11px;
+  line-height: 1.65;
+  color: var(--muted);
+}
+
+.account-google {
+  width: 100%;
+  height: 40px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 9px;
+  border-radius: 8px;
+  background: var(--ink);
+  color: var(--bg);
+  font-size: 11.5px;
+  font-weight: 550;
+  text-decoration: none;
+  transition: opacity 0.16s ease, transform 0.16s ease;
+}
+
+.account-google:hover {
+  opacity: 0.88;
+  transform: translateY(-1px);
+}
+
+.account-google__g {
+  width: 20px;
+  height: 20px;
+  border-radius: 50%;
+  display: grid;
+  place-items: center;
+  background: #fff;
+  color: #4285f4;
+  font-size: 11px;
+  font-weight: 700;
+}
+
+.account-small {
+  margin: 0;
+  font-size: 9.5px;
+  line-height: 1.55;
+  color: var(--muted);
+}
+
+.account-user {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding-bottom: 14px;
+  border-bottom: 1px solid var(--line);
+}
+
+.account-user__avatar {
+  width: 40px;
+  height: 40px;
+  font-size: 12px;
+}
+
+.account-user__text {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  line-height: 1.35;
+}
+
+.account-user__text b {
+  font-size: 12px;
+  font-weight: 550;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.account-user__text small {
+  font-size: 9.5px;
+  color: var(--muted);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.account-signout {
+  flex: none;
+  font-size: 9.5px;
+  color: var(--muted);
+  text-decoration: underline;
+  text-underline-offset: 2px;
+}
+
+.account-signout:hover {
+  color: var(--ink);
+}
+
+.account-plan {
+  margin-top: 14px;
+  padding: 12px;
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  background: var(--card);
+}
+
+.account-plan--pro {
+  border-color: rgba(92, 155, 109, 0.35);
+  background: rgba(92, 155, 109, 0.06);
+}
+
+.account-plan--expired {
+  border-color: rgba(168, 64, 42, 0.28);
+}
+
+.account-plan__row {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+.account-plan__mark {
+  width: 30px;
+  height: 30px;
+  border-radius: 8px;
+  display: grid;
+  place-items: center;
+  background: var(--accent-soft);
+  color: var(--accent);
+  flex: none;
+}
+
+.account-plan--pro .account-plan__mark {
+  background: var(--live-bg);
+  color: var(--live-fg);
+}
+
+.account-plan--expired .account-plan__mark {
+  background: rgba(168, 64, 42, 0.09);
+  color: var(--danger);
+}
+
+.account-plan__row > div {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  line-height: 1.35;
+}
+
+.account-plan__row b {
+  font-size: 12px;
+  font-weight: 550;
+}
+
+.account-plan__row small {
+  font-size: 9.5px;
+  color: var(--muted);
+  margin-top: 2px;
+}
+
+.account-plan__badge {
+  flex: none;
+  padding: 2px 6px;
+  border: 1px solid var(--line);
+  border-radius: 999px;
+  font-size: 8px;
+  color: var(--muted);
+  white-space: nowrap;
+}
+
+.trial-meter {
+  height: 4px;
+  margin-top: 11px;
+  border-radius: 999px;
+  background: var(--hover);
+  overflow: hidden;
+}
+
+.trial-meter i {
+  display: block;
+  height: 100%;
+  border-radius: inherit;
+  background: var(--accent);
+  transition: width 0.3s ease;
+}
+
+.account-primary {
+  width: 100%;
+  height: 38px;
+  margin-top: 12px;
+  border-radius: 8px;
+  background: var(--ink);
+  color: var(--bg);
+  font-size: 11.5px;
+  font-weight: 550;
+  transition: opacity 0.16s ease;
+}
+
+.account-primary:hover:not(:disabled) {
+  opacity: 0.87;
+}
+
+.account-primary:disabled {
+  opacity: 0.5;
+  cursor: default;
+}
+
+.account-note {
+  margin-top: 12px;
+  padding: 10px 11px;
+  border: 1px dashed var(--line-strong);
+  border-radius: 8px;
+  font-size: 10px;
+  line-height: 1.5;
+  color: var(--muted);
+}
+
+.account-error {
+  margin-top: 12px;
+  padding: 8px 10px;
+  border-radius: 7px;
+  background: rgba(168, 64, 42, 0.08);
+  color: var(--danger);
+  font-size: 10.5px;
+}
+
+.modal--account .modal__foot {
+  margin-top: 16px;
+}
+
+.access-banner {
+  display: flex;
+  align-items: center;
+  gap: 9px;
+  margin-bottom: 8px;
+  padding: 8px 10px;
+  border: 1px solid var(--accent-border);
+  border-radius: 9px;
+  background: var(--accent-soft);
+}
+
+.access-banner__mark {
+  width: 26px;
+  height: 26px;
+  border-radius: 7px;
+  display: grid;
+  place-items: center;
+  background: var(--bg-elev);
+  color: var(--accent);
+  flex: none;
+}
+
+.access-banner__text {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  line-height: 1.35;
+}
+
+.access-banner__text b {
+  font-size: 10.5px;
+  font-weight: 600;
+  color: var(--ink);
+}
+
+.access-banner__text small {
+  font-size: 9.5px;
+  color: var(--ink-soft);
+  margin-top: 1px;
+}
+
+.access-banner__action {
+  flex: none;
+  height: 26px;
+  padding: 0 8px;
+  border-radius: 6px;
+  background: var(--ink);
+  color: var(--bg);
+  font-size: 9.5px;
+  font-weight: 550;
+}
+
+.access-banner__action:hover {
+  opacity: 0.85;
 }
 
 .toast {
@@ -2516,6 +2947,31 @@ a {
   .topbar__title b {
     max-width: 44vw;
     font-size: 12px;
+  }
+  .account-pill {
+    padding: 0 4px;
+  }
+  .account-pill span {
+    display: none;
+  }
+  .account-pill__avatar {
+    width: 24px;
+    height: 24px;
+  }
+  .access-banner {
+    align-items: flex-start;
+  }
+  .access-banner__text small {
+    font-size: 9px;
+  }
+  .account {
+    padding: 16px 18px 4px;
+  }
+  .account-plan__badge {
+    display: none;
+  }
+  .modal--account .modal__foot {
+    margin-top: 14px;
   }
   .studio-toggle {
     height: 29px;

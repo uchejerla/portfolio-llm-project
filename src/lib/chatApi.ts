@@ -6,6 +6,7 @@ export interface StreamHandlers {
   onPortfolio: (portfolio: Portfolio) => void;
   onDone: (payload: { message: string; portfolio: Portfolio | null }) => void;
   onError: (message: string) => void;
+  onAccessDenied?: (code: "auth_required" | "trial_expired", message: string) => void;
 }
 
 export async function fetchStatus(): Promise<ServerStatus | null> {
@@ -42,11 +43,17 @@ export async function streamChat(
 
   if (!response.ok || !response.body) {
     let detail = "The studio could not answer that one.";
+    let code = "";
     try {
       const parsed = await response.json();
       if (typeof parsed?.error === "string") detail = parsed.error;
+      if (typeof parsed?.code === "string") code = parsed.code;
     } catch {
       // keep the friendly fallback
+    }
+    if ((code === "auth_required" || code === "trial_expired") && handlers.onAccessDenied) {
+      handlers.onAccessDenied(code, detail);
+      return;
     }
     handlers.onError(detail);
     return;

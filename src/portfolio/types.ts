@@ -102,4 +102,8 @@ export interface ServerStatus {
   provider: "anthropic" | "openai" | "offline";
   model: string;
   ready: boolean;
+  authEnabled?: boolean;
+  billingEnabled?: boolean;
+  trialDays?: number;
+  priceLabel?: string;
 }

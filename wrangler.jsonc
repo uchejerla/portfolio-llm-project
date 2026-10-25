@@ -6,5 +6,12 @@
   "assets": {
     "directory": "./dist",
     "binding": "ASSETS"
-  }
+  },
+  "d1_databases": [
+    {
+      "binding": "DB",
+      "database_name": "portfolio-studio",
+      "database_id": "220b5e41-c206-4d54-af70-18be680b1b3f"
+    }
+  ]
 }

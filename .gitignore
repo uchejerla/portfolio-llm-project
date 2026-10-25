@@ -5,6 +5,8 @@ sites-build
 .wrangler
 .env
 .env.local
+.dev.vars
+.data
 *.log
 .DS_Store
 .vite

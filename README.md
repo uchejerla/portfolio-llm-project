@@ -7,7 +7,8 @@
 **Turn who you are into a portfolio worth sending.**
 
 A Claude-style studio that interviews you, art-directs the result, and hands you a portfolio you own.
-Ten cinematic templates, a live desktop + mobile preview, and one-file HTML export.
+Ten cinematic templates, a live desktop + mobile preview, one-file HTML export, and an optional
+Google sign-in + Stripe subscription layer for running it as a product.
 
 [**Live demo**](https://site-12814198e9224ea9861b511f69be1706.freebuff.page) · [Features](#the-studio) · [Templates](#ten-templates-one-blueprint) · [Quick start](#quick-start) · [Deploy](#build-and-deploy)
 
@@ -16,12 +17,13 @@ Ten cinematic templates, a live desktop + mobile preview, and one-file HTML expo
 [![React](https://img.shields.io/badge/React-18-2b211a?style=flat-square&logo=react&logoColor=61dafb)](https://react.dev)
 [![TypeScript](https://img.shields.io/badge/TypeScript-5.7-2b211a?style=flat-square&logo=typescript&logoColor=3178c6)](https://www.typescriptlang.org)
 [![Cloudflare Workers](https://img.shields.io/badge/deploy-Cloudflare_Workers-2b211a?style=flat-square&logo=cloudflare&logoColor=f38020)](https://workers.cloudflare.com)
+[![Accounts](https://img.shields.io/badge/accounts-Google_%2B_Stripe-2b211a?style=flat-square&logo=google&logoColor=4285f4)](#accounts-trial-and-billing)
 
 </div>
 
 ---
 
-> **Try it now:** [open the live studio](https://site-12814198e9224ea9861b511f69be1706.freebuff.page). The hosted demo is intentionally running without a model key, so you can explore the complete interface in **local draft mode**. Run it locally with your own Claude or OpenAI key for free-form writing and revisions.
+> **Try it now:** [open the live studio](https://site-12814198e9224ea9861b511f69be1706.freebuff.page). The hosted demo is intentionally running without a model key, so you can explore the complete interface in **local draft mode**. Accounts and subscriptions are also off on that deployment until Google and Stripe keys are added. Run it locally with your own keys for free-form writing and a working trial flow.
 
 ## Why this exists
 
@@ -33,6 +35,7 @@ Tell the studio who you are, what you make, and which work matters. It writes a 
 - **Your copy stays yours.** The model returns a structured blueprint, not raw HTML. Switching from Cinema to Atelier keeps every word in place.
 - **Works without a key.** The local draft engine gets you from a brief to a real starter portfolio; Claude takes it further.
 - **A site you own.** Export one standalone HTML file and put it anywhere.
+- **A product if you want one.** Google sign-in, a no-card trial, and Stripe subscriptions are already wired in — or switch billing off and self-host it open.
 
 ## The studio
 
@@ -47,6 +50,7 @@ The studio combines a conversational editor with a live artifact panel:
 - Conversation history, local search, and `⌘K` for a new chat
 - Four sample briefs and a fill-in-the-blanks story scaffold
 - Attach briefs or résumés as `.txt`, `.md`, `.json`, or `.csv` files
+- Google sign-in, a live trial countdown, and a `Studio pass` account menu
 - Light and dark themes, responsive layouts, and saved conversations
 
 **Studio**
@@ -59,7 +63,9 @@ The studio combines a conversational editor with a live artifact panel:
 **Under the hood**
 - Anthropic Claude streaming via the Messages API
 - Any OpenAI-compatible chat completions endpoint as an alternative
-- Server-only model keys, with graceful local draft fallback
+- Google OAuth with opaque, hashed server sessions — no auth vendor
+- Stripe Checkout, billing portal, and signed webhooks for subscriptions
+- Server-only model, OAuth, and Stripe keys, with graceful local draft fallback
 - A typed normalizer that makes every word of model output render-safe
 - A Cloudflare Workers build of the same API for public hosting
 
@@ -125,7 +131,7 @@ npm run dev
 
 Open **http://localhost:3000**.
 
-That is enough to try the whole product. Without a model key the status pill reads **Local draft** and the local engine builds a starter portfolio from your brief.
+That is enough to try the whole product. Without a model key the status pill reads **Local draft** and the local engine builds a starter portfolio from your brief. Accounts are off by default; read [Accounts, trial and billing](#accounts-trial-and-billing) to turn them on.
 
 ## Connect a model
 
@@ -154,6 +160,113 @@ Anthropic is used when both are configured. Keys are read only by the server; th
 
 Without a key, **local draft mode** can assemble a starter portfolio, extract projects from a brief, change templates and colours, and update your details. It cannot rewrite prose.
 
+## Accounts, trial and billing
+
+Portfolio Studio ships with an optional paid layer. It is **off by default** — add Google and Stripe keys to turn it on, or leave them out and self-host the studio open.
+
+**The model**
+
+- Sign in with Google. No passwords, no magic links, no auth vendor.
+- A no-card trial starts at first sign-in. `TRIAL_DAYS` defaults to **7**.
+- The local draft engine stays free. **Claude generation is the paid part**: when the trial ends, the composer stays available but new model replies pause until you upgrade. Existing portfolios, template changes, previews, and HTML exports keep working.
+- One recurring plan through Stripe Checkout. Manage or cancel from Stripe's billing portal.
+- The UI shows `PRICE_LABEL`; the amount, currency, and interval live on the Stripe Price you create.
+
+**Where the data lives**
+
+| Data | Location |
+| --- | --- |
+| Account profile, trial end, Stripe customer + subscription state, hashed sessions, webhook IDs | D1 (Workers) or `.data/studio.db` (local Node) |
+| Conversations and blueprints | Browser `localStorage` |
+| Cards, invoices, subscription lifecycle | Stripe |
+| Name, email, avatar | Google identity, copied to your account record on first sign-in |
+
+Accounts do **not** sync chats between devices. Portfolios stay in the browser; the account only carries identity, trial, and plan. Model keys stay server-side, and the browser holds only an opaque, HttpOnly session cookie.
+
+### Google sign-in
+
+1. In [Google Cloud Console](https://console.cloud.google.com/), configure the **OAuth consent screen** (External). Add the `openid`, `email`, and `profile` scopes. While the app is in testing, add your own Google account as a test user.
+2. Go to **Credentials → Create credentials → OAuth client ID → Web application**.
+3. Add these exact **Authorized redirect URIs**:
+
+```text
+http://localhost:3000/api/auth/google/callback
+http://localhost:8787/api/auth/google/callback
+https://YOUR_DEPLOYMENT/api/auth/google/callback
+```
+
+4. Set the client values:
+
+```dotenv
+GOOGLE_CLIENT_ID=your_client_id
+GOOGLE_CLIENT_SECRET=your_client_secret
+```
+
+Use `.env` for the Node server. For a deployed Worker, put them in **Sites → Secrets** (or `.dev.vars` for local `wrangler dev`). Google keeps the app limited to test users until you publish the consent screen; finish Google's publishing checklist before opening sign-up to the public.
+
+### Stripe subscriptions
+
+1. Create a product and a **recurring** price (for example `$9 / month`).
+2. Add a webhook endpoint:
+
+```text
+https://YOUR_DEPLOYMENT/api/billing/webhook
+```
+
+Subscribe it to these events:
+
+```text
+checkout.session.completed
+customer.subscription.created
+customer.subscription.updated
+customer.subscription.deleted
+invoice.payment_failed
+```
+
+3. Set the server values:
+
+```dotenv
+STRIPE_SECRET_KEY=sk_live_or_test
+STRIPE_PRICE_ID=price_...
+STRIPE_WEBHOOK_SECRET=whsec_...
+TRIAL_DAYS=7
+PRICE_LABEL="$9 / month"
+```
+
+Billing only enables when **Google sign-in and all three Stripe values** are present. Otherwise the account UI explains that billing is off and the studio stays open.
+
+For local checkout testing, forward webhooks with the Stripe CLI:
+
+```bash
+stripe listen --forward-to localhost:8787/api/billing/webhook
+```
+
+Use Stripe's test cards and test-mode keys. No card data ever reaches the app; Checkout and the billing portal are hosted by Stripe.
+
+### Database
+
+- **Hosted Workers:** provision a D1 database with the binding name `DB`. The Worker creates its tables on first use; see [`server/db/schema.ts`](server/db/schema.ts).
+- **Local Node:** SQLite at `.data/studio.db`. Override with `STUDIO_DB_PATH`.
+- **Local `wrangler dev`:** the D1 binding in [`wrangler.jsonc`](wrangler.jsonc) uses Wrangler's local state.
+- The schema uses additive `CREATE TABLE IF NOT EXISTS` statements for this version. Add real migrations before changing columns in production.
+
+### Self-hosted mode
+
+| Configuration | Behavior |
+| --- | --- |
+| No Google keys | Accounts and paywall off. Model calls (if a model key is set) work as before. |
+| Google keys, no Stripe | Sign-in and trial display work, but there is no way to pay, so the paywall stays off. |
+| Google + Stripe | Trial enforced for model-backed chat; upgrade and billing portal active. |
+
+This keeps a cloned repo useful without creating third-party accounts. The live demo is in the first mode.
+
+### Security notes
+
+- Opaque session tokens are stored as SHA-256 hashes; cookies are `HttpOnly`, `SameSite=Lax`, and `Secure` on HTTPS.
+- OAuth uses a short-lived state cookie and verifies the Google ID token's signature, issuer, audience, expiry, and `email_verified` claim.
+- Account mutations require same-origin requests. Stripe webhooks verify the exact raw payload with the signing secret and de-duplicate event IDs.
+- Add authentication and rate limiting before putting a model key on any public URL. This app gates **signed-in paid access**, but it does not include a per-user generation quota.
+
 ## Build and deploy
 
 ### Node
@@ -163,7 +276,7 @@ npm run build
 PORT=3000 npm start
 ```
 
-The Express server serves the built app and the API from one process.
+The Express server serves the built app and the API from one process. It creates a local SQLite account database at `.data/studio.db` when it boots.
 
 ### Cloudflare Workers
 
@@ -173,6 +286,8 @@ The same API is available as a Worker, with the Vite build as static assets:
 npm run build:sites
 npx wrangler dev --config wrangler.jsonc
 ```
+
+For accounts on Workers, add a D1 binding named `DB` and set `GOOGLE_CLIENT_ID`, `GOOGLE_CLIENT_SECRET`, `STRIPE_SECRET_KEY`, `STRIPE_PRICE_ID`, and `STRIPE_WEBHOOK_SECRET` as deployment secrets. Without them the Worker runs exactly like the local draft demo. The schema creates itself on first use.
 
 - [`worker/index.ts`](worker/index.ts) — the Workers API and static asset router
 - [`sites.manifest.json`](sites.manifest.json) — the deployment manifest for Freebuff Sites
@@ -187,29 +302,49 @@ The live demo above is deployed on Freebuff Sites.
 
 ```text
 src/
-  App.tsx                 state, streaming, persistence, export
-  components/             sidebar, chat, studio, lookbook, settings
+  App.tsx                 state, streaming, persistence, export, account refresh
+  components/             sidebar, chat, studio, lookbook, settings, account dialog
   portfolio/
     types.ts              blueprint types
     normalize.ts          input validation and repair
     render.ts             template registry and document shell
     templates/            ten hand-built renderers + shared toolkit
-  lib/                    API client, storage, sample briefs
+  lib/                    API client, account client, storage, sample briefs
 server/
-  index.ts                Express API and SSE transport
+  index.ts                Express API, SSE transport, local SQLite boot
+  api.ts                  shared status / auth / account / billing routes
+  account.ts              users, sessions, trial and access evaluation
+  config.ts               Google, trial and Stripe configuration
+  auth/google.ts          OAuth start/callback and ID-token verification
+  billing/stripe.ts       Checkout, portal, webhook signatures, event sync
+  db/                     schema + D1 and SQLite adapters
   prompt.ts               system prompt and blueprint-aware history
   providers.ts            Anthropic / OpenAI-compatible adapters
   offline.ts              local draft engine
   parse.ts                message and blueprint extraction
 worker/
-  index.ts                Workers API and static asset router
+  index.ts                Workers API, D1 boot, static asset router
+tests/
+  account.test.ts         access, OAuth state, webhook and session tests
 public/
   fonts/                  self-hosted interface fonts and licenses
 ```
 
 ## API
 
-Both the Express server and the Worker expose the same two endpoints.
+The Express server and the Worker share the same routes. Chat is streamed; account and billing routes return JSON. Session cookies are opaque and HttpOnly.
+
+| Route | Purpose |
+| --- | --- |
+| `GET /api/status` | Provider/model readiness plus public `authEnabled`, `billingEnabled`, `trialDays`, and `priceLabel` |
+| `GET /api/me` | Current user, trial, plan, and access state; `200` with `user: null` when signed out |
+| `GET /api/auth/google/start` | Starts the Google OAuth redirect |
+| `GET /api/auth/google/callback` | Verifies the ID token, creates the user/session, redirects home |
+| `POST /api/auth/logout` | Revokes the current session |
+| `POST /api/billing/checkout` | Creates a Stripe Checkout session for the signed-in user |
+| `POST /api/billing/portal` | Opens the Stripe billing portal |
+| `POST /api/billing/webhook` | Verifies and applies Stripe subscription events |
+| `POST /api/chat` | Streams a model reply; requires a signed-in trial/plan when billing is configured |
 
 ```http
 GET /api/status
@@ -233,32 +368,54 @@ Responds with `text/event-stream`:
 | `done` | `{ "message": "...", "portfolio": { ... } }` |
 | `error` | `{ "message": "..." }` |
 
+When a configured paid studio blocks generation, `/api/chat` returns JSON instead of a stream:
+
+| Status | `code` | Meaning |
+| --- | --- | --- |
+| `401` | `auth_required` | Sign in with Google to start the trial |
+| `402` | `trial_expired` | The trial ended; open Checkout to keep writing |
+
+The offline draft engine is never paywalled. That keeps the public demo and self-hosted clones usable without accounts.
+
 ## Scripts
 
 | Command | What it does |
 | --- | --- |
 | `npm run dev` | Vite app + Express API with live reload |
 | `npm run typecheck` | TypeScript across the app, server, and Worker |
+| `npm test` | Access, OAuth-state, webhook, and session tests |
 | `npm run build` | Typecheck and build the SPA into `dist/` |
 | `npm run build:sites` | Build the app and bundle the deployable Worker |
 | `npm run start` | Serve the production build and API from Node |
 | `npm run preview` | Preview the Vite build |
 
-CI runs the typecheck, app build, and Worker build on every push and pull request.
+CI runs the typecheck, account tests, app build, and Worker build on every push and pull request.
 
 ## FAQ
 
 **Do I need an API key?**
 No. Local draft mode is enough to try the full flow and export a starter portfolio. A key unlocks model-written copy and real revisions.
 
+**Do I need an account?**
+Only when the deployment has accounts and billing configured. The local draft engine and exports remain free. When accounts are on, sign in with Google to start the trial; after it ends, upgrade to keep Claude writing.
+
+**What happens when the trial ends?**
+New model replies pause. You can still open conversations, switch templates and colours, preview, and export your portfolio. The upgrade button opens Stripe Checkout.
+
 **Where is my data stored?**
-Chats and blueprints live in your browser's `localStorage`. There is no database and no account. Clearing site data clears the studio.
+Chats and blueprints live in your browser's `localStorage`; clearing site data clears the studio. If accounts are enabled, your name, email, trial end, and subscription status live in D1 (or local SQLite when self-hosting). Stripe holds card details and invoices. Chats are not synced between devices.
 
 **Can I host the export anywhere?**
 Yes. Export is a single HTML file with inline CSS. Upload it to any static host, or open it directly from disk.
 
 **Why does the live demo say Local draft?**
-It is deliberately running without a model key so the public demo can be shared without spending API credits. Your own deployment can connect a key in its server environment.
+It is deliberately running without a model key so the public demo can be shared without spending API credits. Accounts and billing are also unconfigured there. Your own deployment can connect keys and add a D1 database.
+
+**Can I run it without Google or Stripe?**
+Yes. Accounts and the paywall stay off; everything else works as before. If Google is configured but Stripe is not, sign-in works but the paywall stays open because there is no way to pay.
+
+**Can I change the price or trial length?**
+Yes. Create another recurring Price in Stripe and update `STRIPE_PRICE_ID`; update the display copy with `PRICE_LABEL` and the trial with `TRIAL_DAYS`.
 
 **Can I add another template?**
 Yes. Add a renderer under `src/portfolio/templates/`, register it in `meta.ts` and `render.ts`, and it will appear in the studio and the model's template guide. Each template is plain TypeScript that returns an HTML document.
@@ -273,10 +430,11 @@ Issues and pull requests are welcome. For a change that affects the UI, include 
 ```bash
 npm ci
 npm run typecheck
+npm test
 npm run build:sites
 ```
 
-Keep model keys out of commits, fixtures, screenshots, and logs.
+Keep model, Google, and Stripe keys out of commits, fixtures, screenshots, and logs. Use the Stripe CLI and test-mode keys for billing changes.
 
 ## Acknowledgements
 

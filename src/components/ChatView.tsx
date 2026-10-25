@@ -4,7 +4,10 @@ import remarkGfm from "remark-gfm";
 import type { Chat, Portfolio, ServerStatus } from "../portfolio/types";
 import { TEMPLATE_BY_ID } from "../portfolio/templates/meta";
 import { SAMPLES, STORY_SCAFFOLD, formatModel } from "../lib/samples";
+import type { AccountIntent, AccountState } from "../lib/account";
+import { accountPlanLabel } from "../lib/account";
 import type { Attachment, SendMeta } from "../lib/types";
+import { Avatar } from "./Avatar";
 import {
   ArrowUpIcon,
   ChevronDownIcon,
@@ -23,6 +26,9 @@ interface ChatViewProps {
   status: ServerStatus | null;
   studioOpen: boolean;
   hasPortfolio: boolean;
+  account: AccountState | null;
+  accessNotice: "signin" | "upgrade" | null;
+  onOpenAccount: (intent?: AccountIntent) => void;
   onSend: (text: string, attachments: Attachment[], meta?: SendMeta) => void;
   onStop: () => void;
   onToggleStudio: () => void;
@@ -123,6 +129,9 @@ export function ChatView({
   status,
   studioOpen,
   hasPortfolio,
+  account,
+  accessNotice,
+  onOpenAccount,
   onSend,
   onStop,
   onToggleStudio,
@@ -228,6 +237,17 @@ export function ChatView({
           </div>
         </div>
         <div className="topbar__right">
+          {account?.authEnabled && (
+            <button
+              className="account-pill"
+              type="button"
+              onClick={() => onOpenAccount()}
+              title={account.user ? account.user.email : "Sign in with Google"}
+            >
+              <Avatar user={account.user} className="account-pill__avatar" />
+              <span>{accountPlanLabel(account)}</span>
+            </button>
+          )}
           <button className="model-pill" type="button" onClick={onOpenSettings}>
             <span className={`model-dot model-dot--${status?.provider ?? "loading"}`} />
             {modelLabel}
@@ -339,6 +359,28 @@ export function ChatView({
 
       <div className="composer-wrap">
         <div className="composer-inner">
+          {accessNotice && (
+            <div className="access-banner">
+              <span className="access-banner__mark">
+                <SparkIcon width={15} height={15} />
+              </span>
+              <div className="access-banner__text">
+                <b>{accessNotice === "signin" ? "Your trial is waiting" : "Your trial has ended"}</b>
+                <small>
+                  {accessNotice === "signin"
+                    ? `Sign in with Google to write with Claude. ${account?.trialDays ?? 7} days free, no card required.`
+                    : "Upgrade to keep writing and revising with Claude. Your portfolios stay yours."}
+                </small>
+              </div>
+              <button
+                type="button"
+                className="access-banner__action"
+                onClick={() => onOpenAccount(accessNotice)}
+              >
+                {accessNotice === "signin" ? "Sign in" : "Upgrade"}
+              </button>
+            </div>
+          )}
           <div className={`composer ${streaming ? "is-streaming" : ""}`}>
             {attachments.length > 0 && (
               <div className="attachments">

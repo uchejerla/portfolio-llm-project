@@ -8,7 +8,10 @@ import { ChatView } from "./components/ChatView";
 import { Studio } from "./components/Studio";
 import { TemplateGallery } from "./components/TemplateGallery";
 import { SettingsDialog } from "./components/SettingsDialog";
+import { AccountDialog } from "./components/AccountDialog";
 import type { Attachment, SendMeta, ToastMessage } from "./lib/types";
+import type { AccountIntent, AccountState } from "./lib/account";
+import { fetchAccount } from "./lib/account";
 import { fetchStatus, streamChat } from "./lib/chatApi";
 import {
   loadChats,
@@ -39,6 +42,9 @@ export default function App() {
   const [status, setStatus] = useState<ServerStatus | null>(null);
   const [galleryOpen, setGalleryOpen] = useState(false);
   const [settingsOpen, setSettingsOpen] = useState(false);
+  const [account, setAccount] = useState<AccountState | null>(null);
+  const [accountOpen, setAccountOpen] = useState(false);
+  const [accountIntent, setAccountIntent] = useState<AccountIntent>("account");
   const [toast, setToast] = useState<ToastMessage | null>(null);
 
   const abortRef = useRef<AbortController | null>(null);
@@ -64,6 +70,7 @@ export default function App() {
 
   useEffect(() => {
     void fetchStatus().then(setStatus);
+    void fetchAccount().then(setAccount);
   }, []);
 
   const notify = useCallback((text: string, actionLabel?: string, action?: () => void) => {
@@ -71,6 +78,58 @@ export default function App() {
     if (toastTimer.current) window.clearTimeout(toastTimer.current);
     toastTimer.current = window.setTimeout(() => setToast(null), 4800);
   }, []);
+
+  const refreshAccount = useCallback(async () => {
+    const next = await fetchAccount();
+    if (next) setAccount(next);
+  }, []);
+
+  const openAccount = useCallback((intent: AccountIntent = "account") => {
+    setAccountIntent(intent);
+    setAccountOpen(true);
+  }, []);
+
+  useEffect(() => {
+    const params = new URLSearchParams(window.location.search);
+    const auth = params.get("auth");
+    const billing = params.get("billing");
+    if (!auth && !billing) return;
+
+    const clean = new URL(window.location.href);
+    clean.searchParams.delete("auth");
+    clean.searchParams.delete("billing");
+    window.history.replaceState({}, "", `${clean.pathname}${clean.search}${clean.hash}`);
+
+    let timer: number | null = null;
+    if (auth === "success") {
+      void refreshAccount();
+      notify("Signed in with Google.");
+    } else if (auth === "error") {
+      notify("Google sign-in didn't finish. Please try again.");
+    }
+
+    if (billing === "success") {
+      notify("Payment received — activating your plan…");
+      let attempts = 0;
+      timer = window.setInterval(async () => {
+        attempts += 1;
+        const next = await fetchAccount();
+        if (next) setAccount(next);
+        if (next?.access?.plan === "pro" || attempts >= 5) {
+          if (timer) window.clearInterval(timer);
+          if (next?.access?.plan === "pro") notify("Studio Pro is active. Welcome in.");
+        }
+      }, 1500);
+    } else if (billing === "cancel") {
+      notify("Checkout cancelled. Your trial is unchanged.");
+    } else if (billing === "portal") {
+      void refreshAccount();
+    }
+
+    return () => {
+      if (timer) window.clearInterval(timer);
+    };
+  }, [notify, refreshAccount]);
 
   const stopStreaming = useCallback(() => {
     abortRef.current?.abort();
@@ -160,9 +219,27 @@ export default function App() {
     updatePortfolio({ ...portfolio, accent });
   };
 
+  const accessNotice: "signin" | "upgrade" | null =
+    status?.ready && account?.billingEnabled
+      ? account.user
+        ? account.access && !account.access.canGenerate
+          ? "upgrade"
+          : null
+        : "signin"
+      : null;
+
   const sendMessage = async (text: string, attachments: Attachment[], meta?: SendMeta) => {
     const clean = text.trim();
     if (!clean || streaming) return;
+    if (accessNotice) {
+      openAccount(accessNotice);
+      notify(
+        accessNotice === "signin"
+          ? "Sign in with Google to start your free trial."
+          : "Your trial has ended. Upgrade to keep writing with Claude.",
+      );
+      return;
+    }
 
     const now = Date.now();
     let chat = activeChat;
@@ -288,6 +365,12 @@ export default function App() {
           onError: (message) => {
             commit(message, { error: true });
           },
+          onAccessDenied: (code, message) => {
+            commit(message, { error: true });
+            setAccountIntent(code === "trial_expired" ? "upgrade" : "signin");
+            setAccountOpen(true);
+            void refreshAccount();
+          },
         },
       );
     } catch (error) {
@@ -361,6 +444,8 @@ export default function App() {
           onDeleteChat={deleteChat}
           onToggleTheme={toggleTheme}
           onOpenSettings={() => setSettingsOpen(true)}
+          onOpenAccount={() => openAccount()}
+          account={account}
           onClose={() => setSidebarOpen(false)}
         />
       </div>
@@ -380,6 +465,9 @@ export default function App() {
           onOpenStudio={() => setStudioOpen(true)}
           onToggleSidebar={() => setSidebarOpen((open) => !open)}
           onOpenSettings={() => setSettingsOpen(true)}
+          onOpenAccount={openAccount}
+          account={account}
+          accessNotice={accessNotice}
         />
 
         {studioOpen && (
@@ -406,6 +494,16 @@ export default function App() {
 
       {settingsOpen && (
         <SettingsDialog status={status} onClose={() => setSettingsOpen(false)} />
+      )}
+
+      {accountOpen && (
+        <AccountDialog
+          account={account}
+          intent={accountIntent}
+          onClose={() => setAccountOpen(false)}
+          onRefresh={refreshAccount}
+          notify={notify}
+        />
       )}
 
       {toast && (

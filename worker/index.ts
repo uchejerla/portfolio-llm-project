@@ -10,11 +10,16 @@ import {
   streamOpenAI,
   type ProviderEnv,
 } from "../server/providers";
+import { denyChatIfRequired, handleApi } from "../server/api";
+import type { AccountEnv } from "../server/config";
+import type { Database } from "../server/db/types";
+import { prepareD1, type D1Like } from "../server/db/d1";
 
-interface Env extends ProviderEnv {
+interface Env extends ProviderEnv, AccountEnv {
   ASSETS: {
     fetch(request: Request): Promise<Response>;
   };
+  DB?: D1Like;
 }
 
 type Send = (event: string, data: unknown) => boolean;
@@ -238,39 +243,39 @@ async function serveAssets(request: Request, env: Env): Promise<Response> {
   return env.ASSETS.fetch(new Request(fallback.toString(), { headers: request.headers }));
 }
 
+async function database(env: Env): Promise<Database | null> {
+  return env.DB ? prepareD1(env.DB) : null;
+}
+
 export default {
   async fetch(request: Request, env: Env): Promise<Response> {
     const url = new URL(request.url);
 
-    if (url.pathname === "/api/status") {
-      if (request.method !== "GET") {
-        return new Response(JSON.stringify({ error: "Method not allowed." }), {
-          status: 405,
-          headers: { "content-type": "application/json; charset=utf-8", allow: "GET" },
-        });
+    try {
+      const db = await database(env);
+      const api = await handleApi(request, env, db);
+      if (api) return api;
+
+      if (url.pathname === "/api/chat") {
+        if (request.method !== "POST") {
+          return new Response(JSON.stringify({ error: "Method not allowed." }), {
+            status: 405,
+            headers: { "content-type": "application/json; charset=utf-8", allow: "POST" },
+          });
+        }
+        const denied = await denyChatIfRequired(request, env, db);
+        if (denied) return denied;
+        return handleChat(request, env);
       }
-      const provider = resolveProvider(env);
-      return json({
-        provider: provider.provider,
-        model: provider.model,
-        ready: provider.provider !== "offline",
-      });
-    }
 
-    if (url.pathname === "/api/chat") {
-      if (request.method !== "POST") {
-        return new Response(JSON.stringify({ error: "Method not allowed." }), {
-          status: 405,
-          headers: { "content-type": "application/json; charset=utf-8", allow: "POST" },
-        });
+      if (url.pathname.startsWith("/api/")) {
+        return json({ error: "Not found." }, 404);
       }
-      return handleChat(request, env);
-    }
 
-    if (url.pathname.startsWith("/api/")) {
-      return json({ error: "Not found." }, 404);
+      return serveAssets(request, env);
+    } catch (error) {
+      console.error("Portfolio Studio API failed", error);
+      return json({ error: "The studio hit a server error. Try again." }, 500);
     }
-
-    return serveAssets(request, env);
   },
 };
